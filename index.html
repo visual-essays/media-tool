@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+  <link href="https://visual-essays.github.io/web-app/static/images/favicon.svg" rel="icon" type="image/svg+xml"/>
+  <link href="https://visual-essays.github.io/web-app/static/images/favicon.png" rel="icon" type="image/png"/>
+  <title>Juncture: Media Tool</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet" />
+
+  <style>
+    [v-cloak] {display: none}
+    * {box-sizing: border-box;}
+    body {max-width:1000px; margin: auto !important;}
+  </style>
+</head>
+<body>
+
+  <div id="app">
+  
+    <ve-header
+      v-cloak
+      background="#5B152E"
+      logo="https://raw.githubusercontent.com/visual-essays/media/main/images/Juncture_Logo.png"
+      contact="Ron.Snyder@ithaka.org"
+      
+    >
+      <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/editor">Editor</a></li>
+        <li><a href="/media">Media tool</a></li>
+        <li><a href="/contact">Contact us</a></li>
+        <li>auth</li>
+      </ul>
+    </ve-header>
+
+    <ve-content-path ref="contentSelector" :content-path="contentPath" mode="media" sticky="true"></ve-content-path>
+
+    <ve-image-grid as-cards>
+      <ul>
+        <li v-for="manifest, idx in manifests" :key="`grid-${idx}`" v-html="manifest"></li>
+      </ul>
+    </ve-image-grid>
+  
+  </div>
+  
+  <!-- This is used for deep linking of Single Page Apps when hosted with GitHub Pages -->
+  <script type="text/javascript">
+    (function(l) {
+      if (l.search[1] === '/' ) {
+        let decoded = l.search.slice(1).split('&').map(s => s.replace(/~and~/g, '&')).join('?')
+        window.history.replaceState(null, null, l.pathname.slice(0, -1) + decoded + l.hash)
+      }
+    }(window.location))
+  </script>
+  <script>
+    let addEl = (args) => {
+      let el = document.createElement(args.tag)
+      Object.keys(args).filter(key => key !== 'tag').forEach(key => el[key] = args[key])
+      document.getElementsByTagName(args.tag === 'script' ? 'body' : 'head')[0].appendChild(el)
+      console.log(el)
+      return el
+    }
+    const isDev = window.location.hostname == 'localhost'
+    const iiifServer = 'https://iiif.juncture-digital.org'
+    const wcEndpoint = isDev ? 'http://localhost:3333/build' : 'https://unpkg.com/visual-essays/dist/visual-essays'
+    addEl({tag: 'link', rel: 'stylesheet', type: 'text/css', href: `${wcEndpoint}/visual-essays.css`})
+    addEl({tag: 'script', type: 'module', src: `${wcEndpoint}/visual-essays.esm.js`})
+    console.log(`media-tool: hostname=${window.location.hostname} isDev=${isDev} iiifServer=${iiifServer} wcEndpoint=${wcEndpoint}`)
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+  <script type="module">
+    
+    const fileExtensions = new Set(['yaml','jpg','jpeg','jp2','png','tif','tiff'])
+    const ignore = new Set(['iiif-props.yaml', 'iiif-props.template.yaml'])
+
+    new Vue({
+    el: '#app',
+    data: () => ({
+      contentPath: '',
+      root: '',
+      pathRoot: '/',
+      ghAuthToken: null,
+      acct: null,
+      repo: null,
+      userCanUpdate: false,
+      dirList: [],
+    }),
+    computed: {
+      isLoggedIn() { return this.ghAuthToken !== null },
+      manifests() { return Array.from(new Set((this.dirList || [])
+        .filter(item => item.type === 'file')
+        .filter(item => !ignore.has(item.name))
+        .filter(item => fileExtensions.has(item.name.split('.').pop().toLowerCase()))
+        .map(item => `${iiifServer}/gh:${item.root}/${encodeURIComponent(item.name.split('.').slice(0,-1).join('.'))}/manifest.json`)))
+      }
+    },
+    created() {
+      this.ghAuthToken = localStorage.getItem('gh-auth-token')
+      window.addEventListener('storage', (evt) => { this.ghAuthToken = localStorage.getItem('gh-auth-token') })
+    },
+    mounted() {
+      this.$refs.contentSelector.addEventListener('contentPathChanged', async (evt) => this.parseContentPath(evt.detail))
+      let pathElems = window.location.href.slice(window.origin.length+1).split('/').filter(pe => pe)
+      if (pathElems.length > 0 && pathElems[0] === 'media-tool') {
+        this.pathRoot = `/${pathElems[0]}/`
+        pathElems = pathElems.slice(1)
+      } 
+      this.contentPath = pathElems.join('/')
+    },
+    methods: {
+
+      async parseContentPath(path) {
+        let [source, contentSpec] = path.split(':')
+        let [contentPath, argsStr] = contentSpec.split('?');
+        [this.acct, this.repo] = contentPath.split('/')
+        let root = contentPath.split(':').pop().split('?')[0]
+        let filePath = contentPath.split('/').slice(2).join('/')
+        this.userCanUpdate = await this.$refs.contentSelector.repositoryIsWriteable()
+        console.log(`acct=${this.acct} repo=${this.repo} contentPath=${contentPath} filePath=${filePath} writeable=${this.userCanUpdate}`)
+        this.contentPath = contentPath
+        window.history.replaceState({}, null, `${this.pathRoot}${contentSpec}`)
+        this.dirList = (await this.$refs.contentSelector.getDirList()).map(item => {item.root = root; return item})
+      }
+
+    },
+    watch: {}
+  })
+  Vue.config.productionTip = false
+  Vue.config.devtools = true
+
+  </script>
+
+</body>
+</html>
